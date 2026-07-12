@@ -497,16 +497,33 @@
       let lastSyncAt = 0;
       try { const r = await LS.get(sinceKey); lastSyncAt = r ? Number(r.value) : 0; } catch(e){}
 
-      // 1. pull remote state and merge FIRST (remote wins only if strictly newer).
+      // 0. pull the SHARED tombstones table first. This is how a delete made
+      //    on one device becomes visible to every other device — without this,
+      //    a device that still has the item locally will just upsert it right
+      //    back on its next sync, resurrecting anything deleted elsewhere.
+      let remoteTombstoneIds = new Set();
+      const { data: remoteTombstones, error: e0 } = await supabase.from('tombstones').select('*').eq('user_id', syncUser.id);
+      if (!e0 && remoteTombstones){
+        remoteTombstoneIds = new Set(remoteTombstones.map(t => t.id));
+        if (remoteTombstoneIds.size){
+          const before = items.length;
+          items = items.filter(i => !remoteTombstoneIds.has(i.id));
+          if (items.length !== before) await saveItems();
+        }
+      }
+
+      // 1. pull remote state and merge (remote wins only if strictly newer).
       //    Doing this before pushing avoids a local push blindly clobbering a
-      //    newer edit made from another device.
+      //    newer edit made from another device. Anything tombstoned — locally
+      //    pending or already recorded remotely — is skipped so a delete can
+      //    never be resurrected by this merge.
       let conflicts = 0;
       const { data: remoteItems, error: e1 } = await supabase.from('items').select('*').eq('user_id', syncUser.id);
       if (!e1 && remoteItems){
         const localById = new Map(items.map(i => [i.id, i]));
-        const tombstoneIds = new Set(tombstones.map(t => t.id));
+        const localTombstoneIds = new Set(tombstones.map(t => t.id));
         remoteItems.forEach(r => {
-          if (tombstoneIds.has(r.id)) return; // pending delete — don't let the pull resurrect it
+          if (localTombstoneIds.has(r.id) || remoteTombstoneIds.has(r.id)) return; // deleted — don't let the pull resurrect it
           const local = localById.get(r.id);
           const remoteNewer = !local || (r.updated_at || 0) > (local.updatedAt || 0);
           if (remoteNewer){
@@ -529,10 +546,16 @@
       render();
       if (conflicts > 0) showToast(`${conflicts} item${conflicts===1?'':'s'} updated from another device`);
 
-      // 2. push local deletes
+      // 2. push local deletes — remove the row AND record it in the shared
+      //    tombstones table so every other device learns about the delete
+      //    on its next sync, instead of re-uploading its own stale copy.
       if (tombstones.length){
         const ids = tombstones.map(t => t.id);
         await supabase.from('items').delete().in('id', ids).eq('user_id', syncUser.id);
+        await supabase.from('tombstones').upsert(
+          tombstones.map(t => ({ id: t.id, user_id: syncUser.id, deleted_at: t.deletedAt })),
+          { onConflict: 'id' }
+        );
         tombstones = [];
         await saveTombstones();
       }
