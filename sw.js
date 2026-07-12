@@ -1,11 +1,11 @@
-const CACHE_NAME = 'sankalp-v5';
+const CACHE_NAME = 'sankalp-v6';
 const APP_SHELL = [
   './index.html',
   './manifest.json',
   './config.js',
-  './css/style.css',
-  './js/app.js',
-  './js/dexie.min.js',
+  './style.css',
+  './app.js',
+  './dexie.min.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable.png'

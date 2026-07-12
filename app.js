@@ -121,18 +121,18 @@
       const res = await LS.get(THEME_KEY);
       const t = res && res.value ? res.value : 'light';
       if (t === 'dark') document.documentElement.setAttribute('data-theme','dark');
-      themeToggle.textContent = t === 'dark' ? '☀' : '☾';
-    } catch(e) { themeToggle.textContent = '☾'; }
+      themeToggle.textContent = (t === 'dark' ? '☀' : '☾') + ' Toggle theme';
+    } catch(e) { themeToggle.textContent = '☾ Toggle theme'; }
   }
   async function toggleTheme(){
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     const next = isDark ? 'light' : 'dark';
     if (next === 'dark') document.documentElement.setAttribute('data-theme','dark');
     else document.documentElement.removeAttribute('data-theme');
-    themeToggle.textContent = next === 'dark' ? '☀' : '☾';
+    themeToggle.textContent = (next === 'dark' ? '☀' : '☾') + ' Toggle theme';
     try { await LS.set(THEME_KEY, next); } catch(e){}
   }
-  themeToggle.addEventListener('click', toggleTheme);
+  themeToggle.addEventListener('click', () => { toggleTheme(); menuPanel.classList.remove('show'); });
 
   // ---------- menu (export/import) ----------
   menuBtn.addEventListener('click', (e) => { e.stopPropagation(); menuPanel.classList.toggle('show'); });
@@ -168,7 +168,6 @@
   // ---------- settings sheet ----------
   const settingsOverlay = document.getElementById('settingsOverlay');
   const settingsClose = document.getElementById('settingsClose');
-  const settingsThemeBtn = document.getElementById('settingsThemeBtn');
   const settingsBtn = document.getElementById('settingsBtn');
   const weeklyReviewBtn = document.getElementById('weeklyReviewBtn');
 
@@ -177,7 +176,6 @@
   settingsBtn.addEventListener('click', () => { menuPanel.classList.remove('show'); openSettings(); });
   settingsClose.addEventListener('click', closeSettings);
   settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
-  settingsThemeBtn.addEventListener('click', toggleTheme);
 
   // ---------- developer mode ----------
   const devToggleBtn = document.getElementById('devToggleBtn');
@@ -391,7 +389,6 @@
     syncBadgeEl.textContent = icons[state] || '⚪';
     syncBadgeEl.title = titles[state] || 'Sync status';
   }
-  if (syncBadgeEl) syncBadgeEl.addEventListener('click', () => openSettings());
 
   async function initSync(){
     if (!SYNC_ENABLED){

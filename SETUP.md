@@ -6,12 +6,16 @@
 ```
 index.html          the app shell (open this)
 config.js           your Supabase credentials live here, not in the code
-css/style.css        all styling
-js/app.js             all logic
-js/dexie.min.js       vendored copy of Dexie (IndexedDB), not loaded from a CDN
+style.css            all styling
+app.js                all logic
+dexie.min.js          vendored copy of Dexie (IndexedDB), not loaded from a CDN
 manifest.json, sw.js, icons/    installability + offline
 supabase-setup.sql   run once in Supabase to create tables
 ```
+All files are flat, in one folder — no subfolders. (An earlier version of
+this file used `css/` and `js/` subfolders; that's been dropped because
+dragging individual files into GitHub's web uploader flattens folder
+structure anyway, so a flat layout is just less error-prone to deploy.)
 All files must sit in the **same folder structure** and be served over
 `http(s)`, not opened as a bare `file://` (service workers and
 installability both require a real server).
@@ -47,7 +51,7 @@ Leave `config.js` blank and the app runs fully local — nothing breaks, the
 sync badge in the header just stays ⚪ and Settings shows "not configured."
 
 ## What's in this build (Phase A, complete)
-1. **Four-file split** — `index.html` / `css/style.css` / `js/app.js` /
+1. **Four-file split** — `index.html` / `style.css` / `app.js` /
    `config.js`. Not split further than this on purpose; revisit only if
    `app.js` gets genuinely hard to navigate (roughly 1,500–2,000 lines).
 2. **Inbox** — a third capture lane alongside Tasks and Bucket List, for
