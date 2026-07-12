@@ -504,7 +504,9 @@
       const { data: remoteItems, error: e1 } = await supabase.from('items').select('*').eq('user_id', syncUser.id);
       if (!e1 && remoteItems){
         const localById = new Map(items.map(i => [i.id, i]));
+        const tombstoneIds = new Set(tombstones.map(t => t.id));
         remoteItems.forEach(r => {
+          if (tombstoneIds.has(r.id)) return; // pending delete — don't let the pull resurrect it
           const local = localById.get(r.id);
           const remoteNewer = !local || (r.updated_at || 0) > (local.updatedAt || 0);
           if (remoteNewer){
