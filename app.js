@@ -542,7 +542,7 @@
       if (categories.length){
         await supabase.from('categories').upsert(
           categories.map(c => ({ key: c.key, user_id: syncUser.id, label: c.label, color: c.color })),
-          { onConflict: 'key' }
+          { onConflict: 'user_id,key' }
         );
       }
       await LS.set(sinceKey, String(Date.now()));
