@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Sankalp</title>
+<meta name="theme-color" content="#FAF6EF">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Sankalp">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<script src="config.js"></script>
+<script src="js/dexie.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header>
+  <div class="topline">
+    <h1>Sankalp</h1>
+    <div class="header-actions">
+      <button class="icon-btn" id="syncBadge" title="Sync status">⚪</button>
+      <button class="icon-btn" id="searchBtn" title="Search (/)">⌕</button>
+      <button class="icon-btn" id="menuBtn" title="More">⋯</button>
+      <button class="icon-btn" id="themeToggle" title="Toggle theme">☾</button>
+      <div class="menu-panel" id="menuPanel">
+        <button class="menu-item" id="weeklyReviewBtn">Weekly Review</button>
+        <button class="menu-item" id="settingsBtn">Settings</button>
+      </div>
+    </div>
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="docket">Tasks</button>
+    <button class="tab" data-tab="bucket">Bucket List</button>
+    <button class="tab" data-tab="inbox">Inbox<span class="tab-badge" id="inboxBadge" style="display:none;"></span></button>
+  </div>
+  <div class="searchbar" id="searchBar" style="display:none; margin-top:10px;">
+    <input type="text" id="searchInput" placeholder="Search everything… (Esc to close)" maxlength="200"
+      style="width:100%; box-sizing:border-box; font-family:'Inter',sans-serif; font-size:14px; padding:9px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--text);" />
+  </div>
+  <div class="statline mono" id="statline">—</div>
+  <div class="weekstrip" id="weekstrip"></div>
+  <div class="wclear" id="wclear">clear day filter</div>
+</header>
+
+<main id="main"><div class="loading-screen">loading your list…</div></main>
+
+<div id="toast" style="display:none; position:fixed; bottom:150px; left:50%; transform:translateX(-50%); background:var(--text); color:var(--bg); font-family:'Inter',sans-serif; font-size:12.5px; padding:9px 16px; border-radius:20px; box-shadow:0 8px 24px var(--shadow); z-index:200; white-space:nowrap;"></div>
+
+<div class="addbar">
+  <div class="addform">
+    <div class="kind-toggle" id="kindToggle">
+      <button data-kind="task" class="active">Task</button>
+      <button data-kind="bucket">Bucket list</button>
+      <button data-kind="inbox">Inbox</button>
+    </div>
+    <div class="addform-row">
+      <input type="text" id="itemInput" placeholder="Add a task…" maxlength="200" />
+      <div class="sub-pick" id="subPick" style="display:none;"></div>
+      <button class="addbtn" id="addBtn" title="Add">+</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modalTitle">New item</h2>
+      <button class="modal-close" id="modalClose">×</button>
+    </div>
+
+    <label class="field-label">What is it</label>
+    <input type="text" id="mText" maxlength="200" placeholder="Type here…" />
+
+    <label class="field-label">Where does it go</label>
+    <div class="kind-toggle" id="mKindToggle">
+      <button data-kind="task" class="active">Task</button>
+      <button data-kind="bucket">Bucket list</button>
+      <button data-kind="inbox">Inbox</button>
+    </div>
+
+    <div id="mCatSection" style="display:none;">
+      <label class="field-label">Category</label>
+      <div class="sub-pick" id="mSubPick"></div>
+      <button type="button" class="manage-link" id="manageLink">manage categories</button>
+      <div class="cat-manager" id="catManager" style="display:none;"></div>
+    </div>
+
+    <label class="field-label">Deadline (optional)</label>
+    <div class="date-row">
+      <input type="date" id="mDateDate" />
+      <input type="time" id="mDateTime" />
+    </div>
+
+    <label class="field-label">Notes (optional)</label>
+    <textarea id="mNotes" maxlength="2000" placeholder="Extra detail…" rows="3" style="width:100%; box-sizing:border-box; font-family:'Inter',sans-serif; font-size:13.5px; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); resize:vertical; margin-bottom:14px;"></textarea>
+
+    <div class="pin-row" id="mPinRow">
+      <button type="button" class="pin-pick" id="mPinPick">★ priority</button>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-delete" id="mDelete">Delete</button>
+      <button class="btn-cancel" id="mCancel">Cancel</button>
+      <button class="btn-add" id="mAdd" disabled>Add</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-overlay" id="settingsOverlay">
+  <div class="sheet">
+    <div class="modal-head">
+      <h2>Settings</h2>
+      <button class="modal-close" id="settingsClose">×</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-label">Appearance</div>
+      <button class="menu-item settings-btn" id="settingsThemeBtn">Toggle light / dark</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-label">Backup</div>
+      <button class="menu-item settings-btn" id="exportBtn">Export backup (.json)</button>
+      <button class="menu-item settings-btn" id="importBtn">Import backup</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none;" />
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-label">Account &amp; sync</div>
+      <div class="menu-note" id="syncStatusNote">Sync: checking…</div>
+      <div id="syncSignedOut" style="display:none; padding-top:6px;">
+        <input type="email" id="syncEmail" placeholder="you@email.com" class="settings-input" />
+        <button class="menu-item settings-btn" id="syncSendLink">Send sign-in link</button>
+      </div>
+      <button class="menu-item settings-btn" id="syncNowBtn" style="display:none;">Sync now</button>
+      <button class="menu-item settings-btn" id="syncSignOutBtn" style="display:none;">Sign out</button>
+    </div>
+
+    <div class="settings-section">
+      <button class="menu-item settings-btn" id="devToggleBtn">Developer mode</button>
+      <div id="devPanel" style="display:none; margin-top:8px;">
+        <div class="menu-note" id="devDbInfo">—</div>
+        <div class="menu-note" id="devQueueInfo">—</div>
+        <button class="menu-item settings-btn" id="devForceSyncBtn">Force sync</button>
+        <button class="menu-item settings-btn" id="devExportDbBtn">Export raw database</button>
+        <button class="menu-item settings-btn" id="devClearCacheBtn">Clear cache &amp; unregister service worker</button>
+        <button class="menu-item settings-btn danger" id="devResetBtn">Reset app (delete all local data)</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-label">About</div>
+      <div class="menu-note">Sankalp — a personal keeper of tasks and intentions.</div>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-overlay" id="reviewOverlay">
+  <div class="sheet">
+    <div class="modal-head">
+      <h2>Weekly Review</h2>
+      <button class="modal-close" id="reviewClose">×</button>
+    </div>
+    <div id="reviewBody"></div>
+  </div>
+</div>
+
+<script src="js/app.js" defer></script>
+
+</body>
+</html>
