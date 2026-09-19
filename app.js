@@ -1,16 +1,8 @@
 (function(){
-  // ---------- SUPABASE CONFIG ----------
-  // Actual values live in config.js (window.SANKALP_CONFIG), kept out of this file
-  // so the app code and your credentials aren't tangled together.
-  const cfg = window.SANKALP_CONFIG || {};
-  const SUPABASE_URL = cfg.SUPABASE_URL || '';
-  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
-
   const V2_KEY = 'sankalp-items-v2';
   const V1_KEY = 'docket-items-v1';
   const CATS_KEY = 'sankalp-categories-v1';
   const THEME_KEY = 'sankalp-theme-v1';
-  const TOMBSTONES_KEY = 'sankalp-tombstones-v1';
   const URGENT_WINDOW_MS = 1000*60*60*24;
   const STALE_DAYS = 7;
   const PALETTE = ['#3F7C60','#B07A1E','#7C6FC9','#C1432B','#3F7CA0','#A0568C'];
@@ -181,8 +173,6 @@
   const devToggleBtn = document.getElementById('devToggleBtn');
   const devPanel = document.getElementById('devPanel');
   const devDbInfo = document.getElementById('devDbInfo');
-  const devQueueInfo = document.getElementById('devQueueInfo');
-  const devForceSyncBtn = document.getElementById('devForceSyncBtn');
   const devExportDbBtn = document.getElementById('devExportDbBtn');
   const devClearCacheBtn = document.getElementById('devClearCacheBtn');
   const devResetBtn = document.getElementById('devResetBtn');
@@ -196,14 +186,7 @@
   function refreshDevInfo(){
     if (!devDbInfo) return;
     devDbInfo.textContent = `${items.length} items · ${categories.length} categories · storage: IndexedDB (Dexie)`;
-    devQueueInfo.textContent = `${tombstones.length} pending delete${tombstones.length===1?'':'s'} to sync`;
   }
-  devForceSyncBtn.addEventListener('click', () => {
-    if (!SYNC_ENABLED){ showToast('Sync is not configured'); return; }
-    if (!syncUser){ showToast('Sign in first'); return; }
-    syncNow();
-    showToast('Sync triggered');
-  });
   devExportDbBtn.addEventListener('click', async () => {
     try {
       const all = await db.kv.toArray();
@@ -281,11 +264,9 @@
     if (archiveBtn) archiveBtn.addEventListener('click', async () => {
       const ids = completedItems.map(i => i.id);
       items = items.filter(i => !ids.includes(i.id));
-      for (const id of ids) await addTombstone(id);
       await saveItems();
       render();
       renderReview();
-      scheduleSync();
       showToast(`Archived ${ids.length} item${ids.length===1?'':'s'}`);
     });
   }
@@ -340,246 +321,6 @@
   }
   async function saveItems(){
     try { await LS.set(V2_KEY, JSON.stringify(items)); } catch (e) { console.error('save failed', e); }
-  }
-
-  // ---------- tombstones (deleted item ids awaiting sync push) ----------
-  let tombstones = [];
-  async function loadTombstones(){
-    try { const res = await LS.get(TOMBSTONES_KEY); tombstones = res && res.value ? JSON.parse(res.value) : []; }
-    catch(e){ tombstones = []; }
-    if (!Array.isArray(tombstones)) tombstones = [];
-  }
-  async function saveTombstones(){
-    try { await LS.set(TOMBSTONES_KEY, JSON.stringify(tombstones)); } catch(e){}
-  }
-  async function addTombstone(id){
-    tombstones = tombstones.filter(t => t.id !== id);
-    tombstones.push({ id, deletedAt: Date.now() });
-    await saveTombstones();
-  }
-
-  // =====================================================================
-  // SUPABASE SYNC (only active if SUPABASE_URL / SUPABASE_ANON_KEY are set)
-  // Strategy: naive full-state sync, last-write-wins by updatedAt (ms).
-  // Local storage remains the source of truth for instant UI; sync is a
-  // background layer on top, never blocking reads/writes.
-  // =====================================================================
-  const SYNC_ENABLED = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
-  let supabase = null;
-  let syncUser = null;
-  let syncTimer = null;
-  let syncInFlight = false;
-
-  const syncStatusNote = document.getElementById('syncStatusNote');
-  const syncSignedOut = document.getElementById('syncSignedOut');
-  const syncEmail = document.getElementById('syncEmail');
-  const syncSendLink = document.getElementById('syncSendLink');
-  const syncNowBtn = document.getElementById('syncNowBtn');
-  const syncSignOutBtn = document.getElementById('syncSignOutBtn');
-  const syncBadgeEl = document.getElementById('syncBadge');
-
-  function setSyncNote(text){ if (syncStatusNote) syncStatusNote.textContent = text; }
-  function setSyncBadge(state){
-    if (!syncBadgeEl) return;
-    const icons = { off:'⚪', synced:'🟢', syncing:'🟡', offline:'🔴', error:'🔴', signedout:'🔴' };
-    const titles = {
-      off:'Sync not configured', synced:'Synced', syncing:'Syncing…',
-      offline:'Offline', error:'Sync error, will retry', signedout:'Signed out — open Settings to sync'
-    };
-    syncBadgeEl.textContent = icons[state] || '⚪';
-    syncBadgeEl.title = titles[state] || 'Sync status';
-  }
-
-  async function initSync(){
-    if (!SYNC_ENABLED){
-      setSyncNote('Sync: not configured');
-      setSyncBadge('off');
-      return;
-    }
-    try {
-      const mod = await import('https://esm.sh/@supabase/supabase-js@2');
-      supabase = mod.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    } catch(e){
-      setSyncNote('Sync: failed to load');
-      setSyncBadge('error');
-      console.error('supabase load failed', e);
-      return;
-    }
-
-    // handle magic-link redirect (Supabase appends tokens to the URL hash)
-    try { await supabase.auth.getSessionFromUrl?.({ storeSession: true }); } catch(e){}
-
-    const { data: { session } } = await supabase.auth.getSession();
-    syncUser = session ? session.user : null;
-    updateSyncUI();
-
-    supabase.auth.onAuthStateChange((_event, session) => {
-      syncUser = session ? session.user : null;
-      updateSyncUI();
-      if (syncUser) syncNow();
-    });
-
-    syncSendLink.addEventListener('click', async () => {
-      const email = syncEmail.value.trim();
-      if (!email) return;
-      syncSendLink.disabled = true; syncSendLink.textContent = 'Sending…';
-      try {
-        await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
-        setSyncNote('Sync: check your email for a link');
-      } catch(e){
-        setSyncNote('Sync: failed to send link');
-      }
-      syncSendLink.disabled = false; syncSendLink.textContent = 'Send sign-in link';
-    });
-    syncNowBtn.addEventListener('click', () => syncNow());
-    syncSignOutBtn.addEventListener('click', async () => { await supabase.auth.signOut(); syncUser=null; updateSyncUI(); });
-
-    if (syncUser){
-      syncNow();
-      syncTimer = setInterval(syncNow, 30000);
-      window.addEventListener('online', syncNow);
-      window.addEventListener('offline', () => setSyncBadge('offline'));
-      document.addEventListener('visibilitychange', () => { syncNow(); }); // fires on both hide and return — cheap no-op if nothing changed
-      window.addEventListener('pagehide', () => { syncNow(); }); // best-effort flush before the tab/app closes
-    }
-  }
-
-  function updateSyncUI(){
-    if (!SYNC_ENABLED) return;
-    if (syncUser){
-      syncSignedOut.style.display = 'none';
-      syncNowBtn.style.display = 'block';
-      syncSignOutBtn.style.display = 'block';
-      setSyncNote('Synced as ' + syncUser.email);
-      setSyncBadge(navigator.onLine ? 'synced' : 'offline');
-      if (!syncTimer){ syncTimer = setInterval(syncNow, 30000); }
-    } else {
-      syncSignedOut.style.display = 'block';
-      syncNowBtn.style.display = 'none';
-      syncSignOutBtn.style.display = 'none';
-      setSyncNote('Sync: signed out');
-      setSyncBadge('signedout');
-      if (syncTimer){ clearInterval(syncTimer); syncTimer = null; }
-    }
-  }
-
-  let syncDebounce = null;
-  function scheduleSync(){
-    if (!SYNC_ENABLED || !syncUser) return;
-    clearTimeout(syncDebounce);
-    syncDebounce = setTimeout(syncNow, 2000);
-  }
-
-  function itemToRow(i){
-    return {
-      id: i.id, user_id: syncUser.id, text: i.text, notes: i.notes || '',
-      kind: i.kind, subcategory: i.subcategory, deadline: i.deadline,
-      done: !!i.done, done_at: i.doneAt, created_at: i.createdAt,
-      updated_at: i.updatedAt || Date.now(), pinned: !!i.pinned,
-    };
-  }
-  function rowToItem(r){
-    return {
-      id: r.id, text: r.text, notes: r.notes || '', kind: r.kind, subcategory: r.subcategory,
-      deadline: r.deadline, done: r.done, doneAt: r.done_at, createdAt: r.created_at,
-      updatedAt: r.updated_at, pinned: r.pinned,
-    };
-  }
-
-  async function syncNow(){
-    if (!SYNC_ENABLED || !syncUser || !supabase || syncInFlight) return;
-    if (!navigator.onLine){ setSyncBadge('offline'); return; }
-    syncInFlight = true;
-    setSyncNote('Syncing…');
-    setSyncBadge('syncing');
-    try {
-      const sinceKey = 'sankalp-last-sync-v1';
-      let lastSyncAt = 0;
-      try { const r = await LS.get(sinceKey); lastSyncAt = r ? Number(r.value) : 0; } catch(e){}
-
-      // 0. pull the SHARED tombstones table first. This is how a delete made
-      //    on one device becomes visible to every other device — without this,
-      //    a device that still has the item locally will just upsert it right
-      //    back on its next sync, resurrecting anything deleted elsewhere.
-      let remoteTombstoneIds = new Set();
-      const { data: remoteTombstones, error: e0 } = await supabase.from('tombstones').select('*').eq('user_id', syncUser.id);
-      if (!e0 && remoteTombstones){
-        remoteTombstoneIds = new Set(remoteTombstones.map(t => t.id));
-        if (remoteTombstoneIds.size){
-          const before = items.length;
-          items = items.filter(i => !remoteTombstoneIds.has(i.id));
-          if (items.length !== before) await saveItems();
-        }
-      }
-
-      // 1. pull remote state and merge (remote wins only if strictly newer).
-      //    Doing this before pushing avoids a local push blindly clobbering a
-      //    newer edit made from another device. Anything tombstoned — locally
-      //    pending or already recorded remotely — is skipped so a delete can
-      //    never be resurrected by this merge.
-      let conflicts = 0;
-      const { data: remoteItems, error: e1 } = await supabase.from('items').select('*').eq('user_id', syncUser.id);
-      if (!e1 && remoteItems){
-        const localById = new Map(items.map(i => [i.id, i]));
-        const localTombstoneIds = new Set(tombstones.map(t => t.id));
-        remoteItems.forEach(r => {
-          if (localTombstoneIds.has(r.id) || remoteTombstoneIds.has(r.id)) return; // deleted — don't let the pull resurrect it
-          const local = localById.get(r.id);
-          const remoteNewer = !local || (r.updated_at || 0) > (local.updatedAt || 0);
-          if (remoteNewer){
-            // a genuine conflict is: we had a local edit since our last successful
-            // sync, and a *different* remote edit beat it to the server.
-            if (local && local.updatedAt > lastSyncAt && r.text !== local.text) conflicts++;
-            localById.set(r.id, rowToItem(r));
-          }
-        });
-        items = Array.from(localById.values());
-        await saveItems();
-      }
-      const { data: remoteCats, error: e2 } = await supabase.from('categories').select('*').eq('user_id', syncUser.id);
-      if (!e2 && remoteCats && remoteCats.length){
-        const localByKey = new Map(categories.map(c => [c.key, c]));
-        remoteCats.forEach(c => { if (!localByKey.has(c.key)) localByKey.set(c.key, { key: c.key, label: c.label, color: c.color }); });
-        categories = Array.from(localByKey.values());
-        await saveCategories();
-      }
-      render();
-      if (conflicts > 0) showToast(`${conflicts} item${conflicts===1?'':'s'} updated from another device`);
-
-      // 2. push local deletes — remove the row AND record it in the shared
-      //    tombstones table so every other device learns about the delete
-      //    on its next sync, instead of re-uploading its own stale copy.
-      if (tombstones.length){
-        const ids = tombstones.map(t => t.id);
-        await supabase.from('items').delete().in('id', ids).eq('user_id', syncUser.id);
-        await supabase.from('tombstones').upsert(
-          tombstones.map(t => ({ id: t.id, user_id: syncUser.id, deleted_at: t.deletedAt })),
-          { onConflict: 'id' }
-        );
-        tombstones = [];
-        await saveTombstones();
-      }
-      // 3. push local items (now merged/authoritative — safe to upsert as-is)
-      if (items.length){
-        await supabase.from('items').upsert(items.map(itemToRow), { onConflict: 'id' });
-      }
-      // 4. push categories
-      if (categories.length){
-        await supabase.from('categories').upsert(
-          categories.map(c => ({ key: c.key, user_id: syncUser.id, label: c.label, color: c.color })),
-          { onConflict: 'user_id,key' }
-        );
-      }
-      await LS.set(sinceKey, String(Date.now()));
-      render();
-      setSyncNote('Synced as ' + syncUser.email);
-      setSyncBadge('synced');
-    } catch(e){
-      console.error('sync failed', e);
-      setSyncNote('Sync: error, will retry');
-      setSyncBadge('error');
-    }
-    syncInFlight = false;
   }
 
   function isOverdue(item){ return item.deadline && !item.done && new Date(item.deadline).getTime() < Date.now(); }
@@ -667,7 +408,6 @@
     item.updatedAt = Date.now();
     render();
     await saveItems();
-    scheduleSync();
     showToast(targetKind === 'task' ? 'Moved to Tasks' : 'Moved to Bucket List');
   }
   function updateInboxBadge(){
@@ -922,14 +662,12 @@
     }
   }
 
-  async function toggleItem(id){ const item = items.find(i=>i.id===id); if(!item) return; item.done=!item.done; item.doneAt=item.done?Date.now():null; item.updatedAt=Date.now(); render(); await saveItems(); scheduleSync(); }
-  async function togglePin(id){ const item = items.find(i=>i.id===id); if(!item) return; item.pinned=!item.pinned; item.updatedAt=Date.now(); render(); await saveItems(); scheduleSync(); }
+  async function toggleItem(id){ const item = items.find(i=>i.id===id); if(!item) return; item.done=!item.done; item.doneAt=item.done?Date.now():null; item.updatedAt=Date.now(); render(); await saveItems(); }
+  async function togglePin(id){ const item = items.find(i=>i.id===id); if(!item) return; item.pinned=!item.pinned; item.updatedAt=Date.now(); render(); await saveItems(); }
   async function deleteItem(id){
     items = items.filter(i=>i.id!==id);
-    await addTombstone(id);
     render();
     await saveItems();
-    scheduleSync();
   }
 
   async function commitAdd(text, kind, sub, dateVal, timeVal, pinned, notes){
@@ -942,7 +680,6 @@
     items.push(item);
     render();
     await saveItems();
-    scheduleSync();
   }
   async function commitEdit(id, text, kind, sub, dateVal, timeVal, pinned, notes){
     const item = items.find(i => i.id === id);
@@ -954,7 +691,6 @@
     item.updatedAt = Date.now();
     render();
     await saveItems();
-    scheduleSync();
   }
 
   // ---------- unified smart add button ----------
@@ -1085,7 +821,6 @@
     await saveCategories();
     mSub = key;
     renderModalSubPick(); renderInlineSubPick(); renderCatManager();
-    scheduleSync();
   }
   async function removeCategory(key){
     if (categories.length <= 1) return;
@@ -1115,11 +850,9 @@
     renderModalSubPick();
     updateAddBtnState();
     await loadItems();
-    await loadTombstones();
     render();
     if ('serviceWorker' in navigator){
       window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
     }
-    initSync();
   })();
 })();

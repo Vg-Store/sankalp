@@ -12,7 +12,6 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
-<script src="config.js"></script>
 <script src="dexie.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -126,22 +125,9 @@
     </div>
 
     <div class="settings-section">
-      <div class="settings-label">Account &amp; sync</div>
-      <div class="menu-note" id="syncStatusNote">Sync: checking…</div>
-      <div id="syncSignedOut" style="display:none; padding-top:6px;">
-        <input type="email" id="syncEmail" placeholder="you@email.com" class="settings-input" />
-        <button class="menu-item settings-btn" id="syncSendLink">Send sign-in link</button>
-      </div>
-      <button class="menu-item settings-btn" id="syncNowBtn" style="display:none;">Sync now</button>
-      <button class="menu-item settings-btn" id="syncSignOutBtn" style="display:none;">Sign out</button>
-    </div>
-
-    <div class="settings-section">
       <button class="menu-item settings-btn" id="devToggleBtn">Developer mode</button>
       <div id="devPanel" style="display:none; margin-top:8px;">
         <div class="menu-note" id="devDbInfo">—</div>
-        <div class="menu-note" id="devQueueInfo">—</div>
-        <button class="menu-item settings-btn" id="devForceSyncBtn">Force sync</button>
         <button class="menu-item settings-btn" id="devExportDbBtn">Export raw database</button>
         <button class="menu-item settings-btn" id="devClearCacheBtn">Clear cache &amp; unregister service worker</button>
         <button class="menu-item settings-btn danger" id="devResetBtn">Reset app (delete all local data)</button>

@@ -1,8 +1,7 @@
-const CACHE_NAME = 'sankalp-v6';
+const CACHE_NAME = 'sankalp-v7';
 const APP_SHELL = [
   './index.html',
   './manifest.json',
-  './config.js',
   './style.css',
   './app.js',
   './dexie.min.js',
@@ -33,7 +32,7 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
-  // Never intercept calls to Supabase or other external APIs.
+  // Never intercept calls to external hosts (e.g. the Google Fonts CDN).
   if (!req.url.startsWith(self.location.origin)) return;
 
   if (req.mode === 'navigate' || req.headers.get('accept')?.includes('text/html')) {
